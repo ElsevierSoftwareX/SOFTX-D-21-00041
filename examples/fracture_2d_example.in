@@ -1,0 +1,32 @@
+# geometry and discretization
+double length = 1.
+int nb_elements = 1024
+
+# external loading
+double shear_load = 2e6
+double normal_load = 1e6
+
+# top material properties
+double E_top = 7e9
+double nu_top = 0.33
+double rho_top = 2000
+
+# bot material properties
+double E_bot = 5e9
+double nu_bot = 0.25
+double rho_bot = 1200
+
+# interface properties
+double tauc = 3.5e6
+double dc = 2e-5
+
+# nucleation
+double a0 = 0.05
+
+# duration and time stepping
+double duration = 2.6e-4
+double tsf = 0.4 # time step factor
+
+# dumping
+string dump_fields = cohesion_0,cohesion_1,top_disp_0,top_disp_1,bot_disp_0,bot_disp_1,tau_max
+int nb_dumps = 200

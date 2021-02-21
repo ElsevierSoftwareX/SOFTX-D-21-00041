@@ -1,0 +1,12 @@
+*~
+*.pyc
+build*
+simulations
+
+# hidden files/folders except .gitignore
+.*
+!.gitignore
+!.gitlab-ci.yml
+!.headers_for_cmake.txt
+!.headers_for_c.txt
+!test/ci/dockerfiles/ubuntu_18_04/.openmpi
