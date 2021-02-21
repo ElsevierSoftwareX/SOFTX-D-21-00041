@@ -1,0 +1,219 @@
+stages:
+  - configure
+  - build
+  - check-warnings
+  - test
+  - doc-build
+  - deploy
+
+.configure:
+  stage: configure
+  script:
+    - mkdir build-ci
+    - cd build-ci
+    - cmake -DUCA_USE_MPI:BOOL=TRUE
+            -DUCA_USE_BLAS:BOOL=TRUE
+            -DUCA_EXAMPLES:BOOL=TRUE
+            -DUCA_TEST:BOOL=TRUE
+            -DUCA_SIMULATIONS:BOOL=FALSE
+            -DUCA_BENCHMARKS:BOOL=TRUE
+            -DUCA_DEVELOPER_DOC:BOOL=FALSE
+            -DCMAKE_BUILD_TYPE:STRING=RelWithDebInfo ..
+  artifacts:
+    when: on_success
+    paths:
+       - build-ci
+    expire_in: 6h
+
+.configure_base:
+  stage: configure
+  script:
+    - mkdir build-ci
+    - cd build-ci
+    - cmake -DUCA_USE_MPI:BOOL=FALSE
+            -DUCA_USE_BLAS:BOOL=FALSE
+            -DUCA_EXAMPLES:BOOL=TRUE
+            -DUCA_TEST:BOOL=TRUE
+            -DUCA_SIMULATIONS:BOOL=FALSE
+            -DUCA_BENCHMARKS:BOOL=TRUE
+            -DUCA_DEVELOPER_DOC:BOOL=FALSE
+            -DCMAKE_BUILD_TYPE:STRING=RelWithDebInfo ..
+  artifacts:
+    when: on_success
+    paths:
+       - build-ci
+    expire_in: 6h
+
+.builds:
+  stage: build
+  script:
+    - cmake --build build-ci > >(tee -a ${output}-out.log) 2> >(tee -a ${output}-err.log >&2)
+  artifacts:
+    when: on_success
+    paths:
+      - build-ci/
+      - ${output}-err.log
+    expire_in: 6h
+
+.test:
+  stage: test
+  variables:
+    OMPI_MCA_plm: 'isolated'
+    OMPI_MCA_btl: 'tcp,self'
+  script:
+    - cd build-ci
+    - ctest -T test --no-compress-output --timeout 300
+  after_script:
+    - cd build-ci
+    - tag=$(head -n 1 < Testing/TAG)
+    - if [ -e Testing/${tag}/Test.xml ]; then
+    -   xsltproc -o ./juint.xml ${CI_PROJECT_DIR}/test/ctest2junit.xsl Testing/${tag}/Test.xml;
+    - fi
+  artifacts:
+    when: always
+    paths:
+      - build-ci/juint.xml
+    reports:
+      junit:
+        - build-ci/juint.xml
+
+.analyse_build:
+  stage: check-warnings
+  script:
+    - if [[ $(cat ${output}-err.log | grep warning -i) ]]; then
+    -    cat ${output}-err.log;
+    -    exit 1;
+    - fi
+  allow_failure: true
+  artifacts:
+    when: on_failure
+    paths:
+      - "$output-err.log"
+
+# ------------------------------------------------------------------------------
+.image_ubuntu_16.04:
+  variables:
+    IMAGE_NAME: ubuntu_16.04
+  image: registry.gitlab.com/uguca/uguca/ubuntu:16.04
+
+.image_ubuntu_18.04:
+  variables:
+    IMAGE_NAME: ubuntu_18.04
+  image: registry.gitlab.com/uguca/uguca/ubuntu:18.04
+
+# ------------------------------------------------------------------------------
+.compiler_gcc:
+  variables:
+    CC: gcc
+    CXX: g++
+
+# ------------------------------------------------------------------------------
+.ubuntu_16.04_gcc:
+  variables:
+    output: ubuntu_16.04_gcc
+  extends:
+    - .compiler_gcc
+    - .image_ubuntu_16.04
+
+.ubuntu_18.04_gcc:
+  variables:
+    output: ubuntu_18.04_gcc
+  extends:
+    - .compiler_gcc
+    - .image_ubuntu_18.04
+
+# ------------------------------------------------------------------------------
+configure:ubuntu_16.04_gcc:
+  extends:
+    - .ubuntu_16.04_gcc
+    - .configure
+
+build:ubuntu_16.04_gcc:
+  extends:
+    - .ubuntu_16.04_gcc
+    - .builds
+  dependencies:
+    - configure:ubuntu_16.04_gcc
+
+# ------------------------------------------------------------------------------
+# this is the reference system
+
+configure_base:ubuntu_18.04_gcc:
+  extends:
+    - .ubuntu_18.04_gcc
+    - .configure_base
+
+configure:ubuntu_18.04_gcc:
+  extends:
+    - .ubuntu_18.04_gcc
+    - .configure
+
+build_base:ubuntu_18.04_gcc:
+  extends:
+    - .ubuntu_18.04_gcc
+    - .builds
+  dependencies:
+    - configure_base:ubuntu_18.04_gcc
+
+build:ubuntu_18.04_gcc:
+  extends:
+    - .ubuntu_18.04_gcc
+    - .builds
+  dependencies:
+    - configure:ubuntu_18.04_gcc
+
+analyse_build_base:ubuntu_18.04_gcc:
+  extends:
+    - .ubuntu_18.04_gcc
+    - .analyse_build
+  dependencies:
+    - build_base:ubuntu_18.04_gcc
+
+analyse_build:ubuntu_18.04_gcc:
+  extends:
+    - .ubuntu_18.04_gcc
+    - .analyse_build
+  dependencies:
+    - build:ubuntu_18.04_gcc
+
+test_base:ubuntu_18.04_gcc:
+  extends:
+    - .ubuntu_18.04_gcc
+    - .test
+  dependencies:
+    - build_base:ubuntu_18.04_gcc
+
+test:ubuntu_18.04_gcc:
+  extends:
+    - .ubuntu_18.04_gcc
+    - .test
+  dependencies:
+    - build:ubuntu_18.04_gcc
+
+build:documentation:
+  stage: doc-build
+  extends:
+    - .ubuntu_18.04_gcc
+  script:
+    - cd build-ci
+    - cmake -DUCA_DEVELOPER_DOC:BOOL=TRUE ..
+    - cmake --build . --target sphinx-doc
+  dependencies:
+    - build:ubuntu_18.04_gcc
+  artifacts:
+    paths:
+    - build-ci/doc/dev-doc/html
+
+pages:
+  stage: deploy
+  extends:
+    - .ubuntu_18.04_gcc
+  script:
+    - mv build-ci/doc/dev-doc/html public
+  dependencies:
+    - build:documentation
+  artifacts:
+    paths:
+    - public
+  only:
+    - features/doc

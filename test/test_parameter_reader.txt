@@ -1,0 +1,5 @@
+string string_1 = burger
+bool bool_1 = True
+double double_1 = 2.2
+int int_1 = 3
+uint uint_1 = 4
