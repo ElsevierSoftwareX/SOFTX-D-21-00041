@@ -26,6 +26,7 @@ In this online documentation, you find information on how to get and compile ugu
    ./src/user_guide
    ./src/interface_laws
    ./src/developer_guide
+   ./src/algo
    ./src/references
    ./src/license
 
